@@ -62,20 +62,25 @@ def main():
     open_map(session_id)
     
     # Give the browser time to load
-    time.sleep(2)
+    time.sleep(3)
     
     # Example 1: Zoom to San Francisco
     print("Zooming to San Francisco...")
     zoom_to_coordinate(session_id, 37.7749, -122.4194, 12)
-    time.sleep(2)
+    time.sleep(4)  # Allow time for the animation to complete
     
     # Example 2: Zoom to a bounding box (roughly California)
     print("Zooming to California...")
     zoom_to_bounding_box(session_id, 42.0, -114.0, 32.5, -124.4)
-    time.sleep(2)
+    time.sleep(4)  # Allow time for the animation to complete
     
-    # Example 3: Plot a polygon (simple triangle)
-    print("Plotting a triangle...")
+    # Example 3: Zoom to New York (to demonstrate long-distance animation)
+    print("Zooming to New York...")
+    zoom_to_coordinate(session_id, 40.7128, -74.0060, 12)
+    time.sleep(4)  # Allow time for the animation to complete
+    
+    # Example 4: Plot a polygon (simple triangle in San Francisco area)
+    print("Plotting a triangle in San Francisco area...")
     triangle = {
         "polygon": {
             "type": "Polygon",
@@ -90,7 +95,7 @@ def main():
         }
     }
     plot_polygon(session_id, triangle)
-    time.sleep(2)
+    time.sleep(4)  # Allow time for the animation to complete
     
     # Example 4: Plot a GeoJSON feature
     print("Plotting a GeoJSON feature...")

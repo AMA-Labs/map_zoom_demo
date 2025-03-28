@@ -97,15 +97,74 @@
         // Handle zoom event
         function handleZoomEvent(data) {
             if (data.lat && data.lng) {
-                // Zoom to coordinate
-                map.setView([data.lat, data.lng], data.zoom || 13);
+                // Zoom to coordinate with animation
+                // First zoom out to show context
+                const currentZoom = map.getZoom();
+                const targetZoom = data.zoom || 13;
+                const currentCenter = map.getCenter();
+                const targetCenter = L.latLng(data.lat, data.lng);
+                
+                // Only animate if we're not already at the target location
+                if (currentCenter.distanceTo(targetCenter) > 100) {
+                    // Step 1: Zoom out (if we're zoomed in more than level 8)
+                    if (currentZoom > 8) {
+                        map.flyTo(currentCenter, 8, {
+                            duration: 1.5,
+                            easeLinearity: 0.25
+                        });
+                        
+                        // Step 2: After zooming out, move to new location and zoom in
+                        setTimeout(() => {
+                            map.flyTo(targetCenter, targetZoom, {
+                                duration: 1.5,
+                                easeLinearity: 0.25
+                            });
+                        }, 1600);
+                    } else {
+                        // If we're already zoomed out, just fly to the target
+                        map.flyTo(targetCenter, targetZoom, {
+                            duration: 2,
+                            easeLinearity: 0.25
+                        });
+                    }
+                } else {
+                    // If we're already near the target, just adjust the zoom level
+                    map.flyTo(targetCenter, targetZoom, {
+                        duration: 1,
+                        easeLinearity: 0.25
+                    });
+                }
             } else if (data.bounding_box) {
-                // Zoom to bounding box
+                // Zoom to bounding box with animation
                 const bounds = L.latLngBounds(
                     [data.bounding_box.south, data.bounding_box.west],
                     [data.bounding_box.north, data.bounding_box.east]
                 );
-                map.fitBounds(bounds);
+                
+                // First zoom out slightly to provide context
+                const currentZoom = map.getZoom();
+                if (currentZoom > 8) {
+                    map.flyTo(map.getCenter(), 8, {
+                        duration: 1,
+                        easeLinearity: 0.25
+                    });
+                    
+                    // Then fit to bounds
+                    setTimeout(() => {
+                        map.flyToBounds(bounds, {
+                            padding: [30, 30],
+                            duration: 1.5,
+                            easeLinearity: 0.25
+                        });
+                    }, 1100);
+                } else {
+                    // If already zoomed out, just fit to bounds
+                    map.flyToBounds(bounds, {
+                        padding: [30, 30],
+                        duration: 2,
+                        easeLinearity: 0.25
+                    });
+                }
             }
         }
         
@@ -133,6 +192,15 @@
             }
             
             if (geoJsonLayer) {
+                // Add style to make the polygon more visible
+                geoJsonLayer.setStyle({
+                    fillColor: '#3388ff',
+                    weight: 3,
+                    opacity: 1,
+                    color: '#0033ff',
+                    fillOpacity: 0.3
+                });
+                
                 geoJsonLayer.addTo(map);
                 
                 // Store reference to the layer
@@ -140,8 +208,40 @@
                     polygons[data.polygon_id] = geoJsonLayer;
                 }
                 
-                // Fit map to polygon bounds
-                map.fitBounds(geoJsonLayer.getBounds());
+                // Get the bounds of the polygon
+                const bounds = geoJsonLayer.getBounds();
+                
+                // Animated zoom to the polygon
+                const currentZoom = map.getZoom();
+                
+                // First zoom out to provide context (if we're zoomed in)
+                if (currentZoom > 8) {
+                    map.flyTo(map.getCenter(), 8, {
+                        duration: 1,
+                        easeLinearity: 0.25
+                    });
+                    
+                    // Then zoom to the polygon bounds
+                    setTimeout(() => {
+                        map.flyToBounds(bounds, {
+                            padding: [50, 50],
+                            duration: 1.5,
+                            easeLinearity: 0.25
+                        });
+                    }, 1100);
+                } else {
+                    // If already zoomed out, just fly to bounds
+                    map.flyToBounds(bounds, {
+                        padding: [50, 50],
+                        duration: 2,
+                        easeLinearity: 0.25
+                    });
+                }
+                
+                // Add a popup with polygon information if available
+                if (data.polygon.properties && data.polygon.properties.name) {
+                    geoJsonLayer.bindPopup(data.polygon.properties.name).openPopup();
+                }
             }
         }
         
