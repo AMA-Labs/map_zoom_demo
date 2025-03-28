@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Map</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            max-width: 300px;
+        }
+        
+        .session-id {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .event-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f5f5f5;
+            padding: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="info-panel">
+        <div class="session-id">Session ID: <span id="session-id">{{ session_id }}</span></div>
+        <div>
+            <strong>Events:</strong>
+            <div class="event-log" id="event-log"></div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([51.505, -0.09], 13);
+        
+        // Add tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        // Session information
+        const sessionId = document.getElementById('session-id').textContent;
+        const eventLog = document.getElementById('event-log');
+        
+        // Store polygons by ID
+        const polygons = {};
+        
+        // Last event index for polling
+        let lastEventIndex = 0;
+        
+        // Add event to log
+        function logEvent(event) {
+            const eventElement = document.createElement('div');
+            eventElement.textContent = `${new Date().toLocaleTimeString()}: ${event.type}`;
+            eventLog.appendChild(eventElement);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+        
+        // Handle zoom event
+        function handleZoomEvent(data) {
+            if (data.lat && data.lng) {
+                // Zoom to coordinate
+                map.setView([data.lat, data.lng], data.zoom || 13);
+            } else if (data.bounding_box) {
+                // Zoom to bounding box
+                const bounds = L.latLngBounds(
+                    [data.bounding_box.south, data.bounding_box.west],
+                    [data.bounding_box.north, data.bounding_box.east]
+                );
+                map.fitBounds(bounds);
+            }
+        }
+        
+        // Handle plot polygon event
+        function handlePlotPolygonEvent(data) {
+            // Remove existing polygon with same ID if it exists
+            if (data.polygon_id && polygons[data.polygon_id]) {
+                map.removeLayer(polygons[data.polygon_id]);
+            }
+            
+            let geoJsonLayer;
+            
+            if (data.polygon.type === "FeatureCollection") {
+                geoJsonLayer = L.geoJSON(data.polygon);
+            } else if (data.polygon.type === "Feature") {
+                geoJsonLayer = L.geoJSON(data.polygon);
+            } else if (data.polygon.type === "Polygon") {
+                // Convert to GeoJSON feature
+                const feature = {
+                    type: "Feature",
+                    geometry: data.polygon,
+                    properties: {}
+                };
+                geoJsonLayer = L.geoJSON(feature);
+            }
+            
+            if (geoJsonLayer) {
+                geoJsonLayer.addTo(map);
+                
+                // Store reference to the layer
+                if (data.polygon_id) {
+                    polygons[data.polygon_id] = geoJsonLayer;
+                }
+                
+                // Fit map to polygon bounds
+                map.fitBounds(geoJsonLayer.getBounds());
+            }
+        }
+        
+        // Process events
+        function processEvents(events) {
+            events.forEach(event => {
+                logEvent(event);
+                
+                switch (event.type) {
+                    case 'zoom':
+                        handleZoomEvent(event.data);
+                        break;
+                    case 'plot_polygon':
+                        handlePlotPolygonEvent(event.data);
+                        break;
+                    default:
+                        console.log('Unknown event type:', event.type);
+                }
+            });
+        }
+        
+        // Poll for events
+        async function pollEvents() {
+            try {
+                const response = await fetch(`/events/${sessionId}?last_event_index=${lastEventIndex}`);
+                const data = await response.json();
+                
+                if (data.events && data.events.length > 0) {
+                    processEvents(data.events);
+                    lastEventIndex = data.last_event_index;
+                }
+            } catch (error) {
+                console.error('Error polling events:', error);
+            }
+            
+            // Continue polling
+            setTimeout(pollEvents, 1000);
+        }
+        
+        // Start polling for events
+        pollEvents();
+    </script>
+</body>
+</html>
