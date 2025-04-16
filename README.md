@@ -1,11 +1,14 @@
 # Map Server
 
-A FastAPI-based web server for interactive maps with real-time event handling. This server allows you to create map sessions, display interactive Leaflet maps, and control map behavior through API endpoints.
+A FastAPI-based web server for interactive maps with real-time event handling. This server allows you to create map sessions, display interactive maps (Leaflet or deck.gl), and control map behavior through API endpoints.
 
 ## Features
 
 - Create and manage map sessions
-- Display interactive Leaflet maps
+- Display interactive maps with two rendering options:
+  - Leaflet (traditional 2D maps)
+  - deck.gl (WebGL-powered 3D maps)
+- Animated zoom transitions with smooth fly-to effects
 - Real-time event handling through polling
 - Zoom to coordinates, bounding boxes, or GeoJSON polygons
 - Plot GeoJSON polygons on the map
@@ -58,21 +61,41 @@ The server will be available at http://localhost:8000
 
 ## Example Usage
 
-A test script is included to demonstrate the functionality:
+A test script is included to demonstrate the functionality with both map types:
 
 ```bash
+# Run with Leaflet (default)
 cd map_server
 poetry run python test_map_server.py
+
+# Run with deck.gl
+poetry run python test_map_server.py --map-type deckgl
 ```
 
 This will:
-1. Create a new map session
+1. Create a new map session with the specified map type
 2. Open the map in your default web browser
 3. Demonstrate various map operations:
    - Zoom to San Francisco
    - Zoom to California (bounding box)
-   - Plot a triangle polygon
-   - Plot a GeoJSON feature
+   - Zoom to New York (to demonstrate long-distance animation)
+   - Plot a triangle polygon in San Francisco
+   - Plot a GeoJSON feature for Los Angeles
+
+## Map Types
+
+### Leaflet
+- Traditional 2D map with tile layers
+- Lightweight and fast
+- Excellent compatibility across browsers
+- Smooth animated transitions between locations
+
+### deck.gl
+- WebGL-powered 3D visualization
+- Enhanced polygon rendering with 3D effects
+- Improved visual styling for GeoJSON features
+- Advanced animation capabilities
+- Better for data visualization use cases
 
 ## API Request Examples
 

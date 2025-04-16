@@ -3,13 +3,19 @@ import json
 import webbrowser
 import time
 import sys
+import argparse
 from urllib.parse import urljoin
+from enum import Enum
 
 BASE_URL = "http://localhost:8000"
 
-def create_session():
-    """Create a new map session"""
-    response = requests.post(f"{BASE_URL}/session")
+class MapType(str, Enum):
+    LEAFLET = "leaflet"
+    DECKGL = "deckgl"
+
+def create_session(map_type=MapType.LEAFLET):
+    """Create a new map session with specified map type"""
+    response = requests.post(f"{BASE_URL}/session", params={"map_type": map_type})
     return response.json()["session_id"]
 
 def open_map(session_id):
@@ -54,8 +60,16 @@ def plot_polygon(session_id, polygon_data):
     return response.json()
 
 def main():
-    print("Creating a new map session...")
-    session_id = create_session()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Test the Map Server with different map types')
+    parser.add_argument('--map-type', type=str, choices=['leaflet', 'deckgl'], default='leaflet',
+                        help='Map type to use (leaflet or deckgl)')
+    args = parser.parse_args()
+    
+    map_type = MapType.LEAFLET if args.map_type == 'leaflet' else MapType.DECKGL
+    
+    print(f"Creating a new map session with {map_type.value} map...")
+    session_id = create_session(map_type)
     print(f"Session created with ID: {session_id}")
     
     print("Opening map in browser...")
@@ -97,7 +111,7 @@ def main():
     plot_polygon(session_id, triangle)
     time.sleep(4)  # Allow time for the animation to complete
     
-    # Example 4: Plot a GeoJSON feature
+    # Example 5: Plot a GeoJSON feature with properties
     print("Plotting a GeoJSON feature...")
     feature = {
         "polygon": {
@@ -123,7 +137,11 @@ def main():
     
     print("\nTest completed! The map is open in your browser.")
     print(f"Session ID: {session_id}")
-    print("You can continue to interact with this session using the API.")
+    print(f"Map type: {map_type.value}")
+    print("\nUsage examples:")
+    print(f"  - View map: {BASE_URL}/map/{session_id}")
+    print(f"  - Get session info: {BASE_URL}/session/{session_id}")
+    print(f"  - Get events: {BASE_URL}/events/{session_id}")
 
 if __name__ == "__main__":
     main()

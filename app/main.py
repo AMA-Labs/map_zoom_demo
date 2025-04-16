@@ -5,7 +5,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 import uuid
 import json
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Literal
+from enum import Enum
 import requests
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,7 +30,14 @@ templates = Jinja2Templates(directory="app/templates")
 # In-memory storage for sessions
 sessions: Dict[str, Dict[str, Any]] = {}
 
+# Map types
+MAP_TYPES = ["leaflet", "deckgl"]
+
 # Models
+class MapType(str, Enum):
+    LEAFLET = "leaflet"
+    DECKGL = "deckgl"
+    
 class Coordinate(BaseModel):
     lat: float
     lng: float
@@ -125,14 +133,15 @@ async def root():
     return {"message": "Map Server API"}
 
 @app.post("/session")
-async def create_session():
+async def create_session(map_type: MapType = MapType.LEAFLET):
     session_id = str(uuid.uuid4())
     sessions[session_id] = {
         "id": session_id,
+        "map_type": map_type,
         "events": [],
         "polygons": []
     }
-    return {"session_id": session_id}
+    return {"session_id": session_id, "map_type": map_type}
 
 @app.get("/session/{session_id}")
 async def get_session(session_id: str):
@@ -145,8 +154,14 @@ async def get_map(request: Request, session_id: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     
+    # Get the map type from the session
+    map_type = sessions[session_id].get("map_type", MapType.LEAFLET)
+    
+    # Select the appropriate template based on map type
+    template_name = "map.html" if map_type == MapType.LEAFLET else "deckgl_map.html"
+    
     return templates.TemplateResponse(
-        "map.html", 
+        template_name, 
         {"request": request, "session_id": session_id}
     )
 

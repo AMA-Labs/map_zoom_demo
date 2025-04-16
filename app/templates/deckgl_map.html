@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Map (deck.gl)</title>
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            max-width: 300px;
+        }
+        
+        .session-id {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .event-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f5f5f5;
+            padding: 5px;
+            margin-top: 10px;
+        }
+    </style>
+    
+    <!-- Load deck.gl and dependencies -->
+    <script src="https://unpkg.com/mapbox-gl@2.13.0/dist/mapbox-gl.js"></script>
+    <link href="https://unpkg.com/mapbox-gl@2.13.0/dist/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/d3@7.8.5/dist/d3.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/core@8.9.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/layers@8.9.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/geo-layers@8.9.0/dist.min.js"></script>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="info-panel">
+        <div class="session-id">Session ID: <span id="session-id">{{ session_id }}</span></div>
+        <div>
+            <strong>Events:</strong>
+            <div class="event-log" id="event-log"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Session information
+        const sessionId = document.getElementById('session-id').textContent;
+        const eventLog = document.getElementById('event-log');
+        
+        // Store polygons by ID
+        const polygons = {};
+        
+        // Last event index for polling
+        let lastEventIndex = 0;
+        
+        // Initial view state
+        let INITIAL_VIEW_STATE = {
+            longitude: -122.4,
+            latitude: 37.8,
+            zoom: 11,
+            pitch: 30,
+            bearing: 0
+        };
+        
+        // Create a Mapbox map
+        const mapboxMap = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/light-v10',
+            interactive: false,
+            center: [INITIAL_VIEW_STATE.longitude, INITIAL_VIEW_STATE.latitude],
+            zoom: INITIAL_VIEW_STATE.zoom,
+            bearing: INITIAL_VIEW_STATE.bearing,
+            pitch: INITIAL_VIEW_STATE.pitch
+        });
+        
+        // Create deck.gl layers array
+        let layers = [];
+        
+        // Create the deck.gl instance
+        const deckgl = new deck.DeckGL({
+            container: 'map',
+            mapboxApiAccessToken: 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4M29iazA2Z2gycXA4N2pmbDZmangifQ.-g_vE53SD2WrJ6tFX7QHmA',
+            mapStyle: 'mapbox://styles/mapbox/light-v10',
+            initialViewState: INITIAL_VIEW_STATE,
+            controller: true,
+            onViewStateChange: ({viewState}) => {
+                // Keep the Mapbox camera in sync with deck.gl
+                if (mapboxMap) {
+                    mapboxMap.jumpTo({
+                        center: [viewState.longitude, viewState.latitude],
+                        zoom: viewState.zoom,
+                        bearing: viewState.bearing,
+                        pitch: viewState.pitch
+                    });
+                }
+            },
+            layers: layers
+        });
+        
+        // Add event to log
+        function logEvent(event) {
+            const eventElement = document.createElement('div');
+            eventElement.textContent = `${new Date().toLocaleTimeString()}: ${event.type}`;
+            eventLog.appendChild(eventElement);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+        
+        // Animate view state transition
+        function animateViewState(targetViewState, duration = 2000) {
+            const currentViewState = deckgl.viewState || INITIAL_VIEW_STATE;
+            
+            // First zoom out if we're zoomed in and moving a significant distance
+            const distance = calculateDistance(
+                currentViewState.latitude, 
+                currentViewState.longitude, 
+                targetViewState.latitude, 
+                targetViewState.longitude
+            );
+            
+            if (currentViewState.zoom > 8 && distance > 100) {
+                // Step 1: Zoom out
+                const zoomOutState = {
+                    ...currentViewState,
+                    zoom: 5,
+                    transitionDuration: duration / 2,
+                    transitionEasing: d3.easeCubic,
+                    transitionInterpolator: new deck.FlyToInterpolator()
+                };
+                
+                deckgl.setProps({
+                    viewState: zoomOutState
+                });
+                
+                // Step 2: After zooming out, move to new location and zoom in
+                setTimeout(() => {
+                    const finalState = {
+                        ...targetViewState,
+                        transitionDuration: duration / 2,
+                        transitionEasing: d3.easeCubic,
+                        transitionInterpolator: new deck.FlyToInterpolator()
+                    };
+                    
+                    deckgl.setProps({
+                        viewState: finalState
+                    });
+                }, duration / 2 + 100);
+            } else {
+                // If we're already zoomed out or the distance is small, just fly to the target
+                const finalState = {
+                    ...targetViewState,
+                    transitionDuration: duration,
+                    transitionEasing: d3.easeCubic,
+                    transitionInterpolator: new deck.FlyToInterpolator()
+                };
+                
+                deckgl.setProps({
+                    viewState: finalState
+                });
+            }
+        }
+        
+        // Calculate distance between two points in km
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Radius of the earth in km
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon2 - lon1);
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2); 
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+            const d = R * c; // Distance in km
+            return d;
+        }
+        
+        function deg2rad(deg) {
+            return deg * (Math.PI/180);
+        }
+        
+        // Handle zoom event
+        function handleZoomEvent(data) {
+            if (data.lat && data.lng) {
+                // Zoom to coordinate with animation
+                const targetViewState = {
+                    longitude: data.lng,
+                    latitude: data.lat,
+                    zoom: data.zoom || 13,
+                    pitch: 30,
+                    bearing: 0
+                };
+                
+                animateViewState(targetViewState);
+            } else if (data.bounding_box) {
+                // Calculate center and zoom for the bounding box
+                const centerLat = (data.bounding_box.north + data.bounding_box.south) / 2;
+                const centerLng = (data.bounding_box.east + data.bounding_box.west) / 2;
+                
+                // Calculate appropriate zoom level based on the bounding box size
+                const latDiff = Math.abs(data.bounding_box.north - data.bounding_box.south);
+                const lngDiff = Math.abs(data.bounding_box.east - data.bounding_box.west);
+                const maxDiff = Math.max(latDiff, lngDiff);
+                const zoom = Math.floor(8 - Math.log2(maxDiff));
+                
+                const targetViewState = {
+                    longitude: centerLng,
+                    latitude: centerLat,
+                    zoom: zoom,
+                    pitch: 30,
+                    bearing: 0
+                };
+                
+                animateViewState(targetViewState);
+            }
+        }
+        
+        // Handle plot polygon event
+        function handlePlotPolygonEvent(data) {
+            // Remove existing polygon with same ID if it exists
+            if (data.polygon_id && polygons[data.polygon_id]) {
+                const layerIndex = layers.findIndex(layer => 
+                    layer.id === `polygon-${data.polygon_id}`
+                );
+                
+                if (layerIndex >= 0) {
+                    layers.splice(layerIndex, 1);
+                }
+            }
+            
+            // Process the GeoJSON data
+            let geojsonData;
+            let coordinates = [];
+            
+            if (data.polygon.type === "FeatureCollection") {
+                geojsonData = data.polygon;
+                // Extract coordinates from the first feature for view state calculation
+                if (data.polygon.features && data.polygon.features.length > 0) {
+                    const feature = data.polygon.features[0];
+                    if (feature.geometry && feature.geometry.type === "Polygon") {
+                        coordinates = feature.geometry.coordinates[0];
+                    }
+                }
+            } else if (data.polygon.type === "Feature") {
+                geojsonData = data.polygon;
+                if (data.polygon.geometry && data.polygon.geometry.type === "Polygon") {
+                    coordinates = data.polygon.geometry.coordinates[0];
+                }
+            } else if (data.polygon.type === "Polygon") {
+                geojsonData = {
+                    type: "Feature",
+                    geometry: data.polygon,
+                    properties: {}
+                };
+                coordinates = data.polygon.coordinates[0];
+            }
+            
+            // Create a new GeoJSON layer
+            const newLayer = new deck.GeoJsonLayer({
+                id: `polygon-${data.polygon_id || Date.now()}`,
+                data: geojsonData,
+                filled: true,
+                stroked: true,
+                getFillColor: [51, 136, 255, 100],
+                getLineColor: [0, 51, 255, 200],
+                getLineWidth: 3,
+                lineWidthUnits: 'pixels',
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 255, 0, 100],
+                onHover: ({object}) => {
+                    if (object && object.properties && object.properties.name) {
+                        // Could implement tooltip here
+                    }
+                }
+            });
+            
+            // Add the new layer
+            layers = [...layers, newLayer];
+            
+            // Update the deck.gl instance with the new layers
+            deckgl.setProps({
+                layers: layers
+            });
+            
+            // Store reference to the layer
+            if (data.polygon_id) {
+                polygons[data.polygon_id] = newLayer;
+            }
+            
+            // Calculate bounding box for the polygon
+            if (coordinates.length > 0) {
+                let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+                
+                coordinates.forEach(coord => {
+                    minLng = Math.min(minLng, coord[0]);
+                    maxLng = Math.max(maxLng, coord[0]);
+                    minLat = Math.min(minLat, coord[1]);
+                    maxLat = Math.max(maxLat, coord[1]);
+                });
+                
+                // Calculate center and zoom
+                const centerLat = (minLat + maxLat) / 2;
+                const centerLng = (minLng + maxLng) / 2;
+                
+                // Calculate appropriate zoom level
+                const latDiff = Math.abs(maxLat - minLat);
+                const lngDiff = Math.abs(maxLng - minLng);
+                const maxDiff = Math.max(latDiff, lngDiff);
+                const zoom = Math.floor(9 - Math.log2(maxDiff));
+                
+                // Animate to the polygon
+                const targetViewState = {
+                    longitude: centerLng,
+                    latitude: centerLat,
+                    zoom: zoom,
+                    pitch: 45,  // Increase pitch for 3D effect
+                    bearing: 0
+                };
+                
+                animateViewState(targetViewState);
+            }
+        }
+        
+        // Process events
+        function processEvents(events) {
+            events.forEach(event => {
+                logEvent(event);
+                
+                switch (event.type) {
+                    case 'zoom':
+                        handleZoomEvent(event.data);
+                        break;
+                    case 'plot_polygon':
+                        handlePlotPolygonEvent(event.data);
+                        break;
+                    default:
+                        console.log('Unknown event type:', event.type);
+                }
+            });
+        }
+        
+        // Poll for events
+        async function pollEvents() {
+            try {
+                const response = await fetch(`/events/${sessionId}?last_event_index=${lastEventIndex}`);
+                const data = await response.json();
+                
+                if (data.events && data.events.length > 0) {
+                    processEvents(data.events);
+                    lastEventIndex = data.last_event_index;
+                }
+            } catch (error) {
+                console.error('Error polling events:', error);
+            }
+            
+            // Continue polling
+            setTimeout(pollEvents, 1000);
+        }
+        
+        // Start polling for events
+        pollEvents();
+    </script>
+</body>
+</html>
