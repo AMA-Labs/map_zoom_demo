@@ -12,6 +12,7 @@ BASE_URL = "http://localhost:8000"
 class MapType(str, Enum):
     LEAFLET = "leaflet"
     DECKGL = "deckgl"
+    OPENLAYERS = "openlayers"
 
 def create_session(map_type=MapType.LEAFLET):
     """Create a new map session with specified map type"""
@@ -62,11 +63,16 @@ def plot_polygon(session_id, polygon_data):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Test the Map Server with different map types')
-    parser.add_argument('--map-type', type=str, choices=['leaflet', 'deckgl'], default='leaflet',
-                        help='Map type to use (leaflet or deckgl)')
+    parser.add_argument('--map-type', type=str, choices=['leaflet', 'deckgl', 'openlayers'], default='leaflet',
+                        help='Map type to use (leaflet, deckgl, or openlayers)')
     args = parser.parse_args()
     
-    map_type = MapType.LEAFLET if args.map_type == 'leaflet' else MapType.DECKGL
+    if args.map_type == 'leaflet':
+        map_type = MapType.LEAFLET
+    elif args.map_type == 'deckgl':
+        map_type = MapType.DECKGL
+    else:
+        map_type = MapType.OPENLAYERS
     
     print(f"Creating a new map session with {map_type.value} map...")
     session_id = create_session(map_type)

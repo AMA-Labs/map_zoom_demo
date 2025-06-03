@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Map (OpenLayers)</title>
+    
+    <!-- OpenLayers CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@7.4.0/ol.css" type="text/css">
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            max-width: 300px;
+        }
+        
+        .session-id {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .event-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f5f5f5;
+            padding: 5px;
+            margin-top: 10px;
+        }
+        
+        /* OpenLayers popup styling */
+        .ol-popup {
+            position: absolute;
+            background-color: white;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #cccccc;
+            bottom: 12px;
+            left: -50px;
+            min-width: 150px;
+        }
+        
+        .ol-popup:after, .ol-popup:before {
+            top: 100%;
+            border: solid transparent;
+            content: " ";
+            height: 0;
+            width: 0;
+            position: absolute;
+            pointer-events: none;
+        }
+        
+        .ol-popup:after {
+            border-top-color: white;
+            border-width: 10px;
+            left: 48px;
+            margin-left: -10px;
+        }
+        
+        .ol-popup:before {
+            border-top-color: #cccccc;
+            border-width: 11px;
+            left: 48px;
+            margin-left: -11px;
+        }
+        
+        .ol-popup-closer {
+            text-decoration: none;
+            position: absolute;
+            top: 2px;
+            right: 8px;
+        }
+        
+        .ol-popup-closer:after {
+            content: "✖";
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="info-panel">
+        <div class="session-id">Session ID: <span id="session-id">{{ session_id }}</span></div>
+        <div>
+            <strong>Events:</strong>
+            <div class="event-log" id="event-log"></div>
+        </div>
+    </div>
+    
+    <!-- Popup container -->
+    <div id="popup" class="ol-popup">
+        <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+        <div id="popup-content"></div>
+    </div>
+    
+    <!-- OpenLayers JS -->
+    <script src="https://cdn.jsdelivr.net/npm/ol@7.4.0/dist/ol.js"></script>
+    
+    <script>
+        // Session information
+        const sessionId = document.getElementById('session-id').textContent;
+        const eventLog = document.getElementById('event-log');
+        
+        // Store polygons by ID
+        const polygons = {};
+        
+        // Last event index for polling
+        let lastEventIndex = 0;
+        
+        // Create popup overlay
+        const container = document.getElementById('popup');
+        const content = document.getElementById('popup-content');
+        const closer = document.getElementById('popup-closer');
+        
+        const overlay = new ol.Overlay({
+            element: container,
+            autoPan: true,
+            autoPanAnimation: {
+                duration: 250
+            }
+        });
+        
+        closer.onclick = function() {
+            overlay.setPosition(undefined);
+            closer.blur();
+            return false;
+        };
+        
+        // Initialize map
+        const map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                })
+            ],
+            overlays: [overlay],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([-0.09, 51.505]),
+                zoom: 13
+            })
+        });
+        
+        // Vector source for polygons
+        const vectorSource = new ol.source.Vector();
+        
+        // Vector layer for polygons
+        const vectorLayer = new ol.layer.Vector({
+            source: vectorSource,
+            style: new ol.style.Style({
+                fill: new ol.style.Fill({
+                    color: 'rgba(51, 136, 255, 0.3)'
+                }),
+                stroke: new ol.style.Stroke({
+                    color: '#0033ff',
+                    width: 3
+                })
+            })
+        });
+        
+        map.addLayer(vectorLayer);
+        
+        // Add event to log
+        function logEvent(event) {
+            const eventElement = document.createElement('div');
+            eventElement.textContent = `${new Date().toLocaleTimeString()}: ${event.type}`;
+            eventLog.appendChild(eventElement);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+        
+        // Handle zoom event
+        function handleZoomEvent(data) {
+            if (data.lat && data.lng) {
+                // Zoom to coordinate with animation
+                const currentZoom = map.getView().getZoom();
+                const targetZoom = data.zoom || 13;
+                const currentCenter = ol.proj.toLonLat(map.getView().getCenter());
+                const targetCenter = [data.lng, data.lat];
+                
+                // Calculate distance between current and target centers
+                const distance = calculateDistance(
+                    currentCenter[1], 
+                    currentCenter[0], 
+                    targetCenter[1], 
+                    targetCenter[0]
+                );
+                
+                // Only animate if we're not already at the target location
+                if (distance > 10) {
+                    // Step 1: Zoom out (if we're zoomed in more than level 8)
+                    if (currentZoom > 8) {
+                        map.getView().animate({
+                            zoom: 5,
+                            duration: 1000
+                        });
+                        
+                        // Step 2: After zooming out, move to new location and zoom in
+                        setTimeout(() => {
+                            map.getView().animate({
+                                center: ol.proj.fromLonLat(targetCenter),
+                                zoom: targetZoom,
+                                duration: 1000
+                            });
+                        }, 1100);
+                    } else {
+                        // If we're already zoomed out, just fly to the target
+                        map.getView().animate({
+                            center: ol.proj.fromLonLat(targetCenter),
+                            zoom: targetZoom,
+                            duration: 2000
+                        });
+                    }
+                } else {
+                    // If we're already near the target, just adjust the zoom level
+                    map.getView().animate({
+                        center: ol.proj.fromLonLat(targetCenter),
+                        zoom: targetZoom,
+                        duration: 1000
+                    });
+                }
+            } else if (data.bounding_box) {
+                // Zoom to bounding box with animation
+                const extent = ol.proj.transformExtent(
+                    [data.bounding_box.west, data.bounding_box.south, data.bounding_box.east, data.bounding_box.north],
+                    'EPSG:4326',
+                    'EPSG:3857'
+                );
+                
+                // First zoom out slightly to provide context
+                const currentZoom = map.getView().getZoom();
+                if (currentZoom > 8) {
+                    map.getView().animate({
+                        zoom: 5,
+                        duration: 1000
+                    });
+                    
+                    // Then fit to extent
+                    setTimeout(() => {
+                        map.getView().fit(extent, {
+                            padding: [30, 30, 30, 30],
+                            duration: 1000
+                        });
+                    }, 1100);
+                } else {
+                    // If already zoomed out, just fit to extent
+                    map.getView().fit(extent, {
+                        padding: [30, 30, 30, 30],
+                        duration: 2000
+                    });
+                }
+            }
+        }
+        
+        // Handle plot polygon event
+        function handlePlotPolygonEvent(data) {
+            // Remove existing polygon with same ID if it exists
+            if (data.polygon_id && polygons[data.polygon_id]) {
+                vectorSource.removeFeature(polygons[data.polygon_id]);
+                delete polygons[data.polygon_id];
+            }
+            
+            let geojsonObject;
+            
+            if (data.polygon.type === "FeatureCollection") {
+                geojsonObject = data.polygon;
+            } else if (data.polygon.type === "Feature") {
+                geojsonObject = data.polygon;
+            } else if (data.polygon.type === "Polygon") {
+                // Convert to GeoJSON feature
+                geojsonObject = {
+                    type: "Feature",
+                    geometry: data.polygon,
+                    properties: {}
+                };
+            }
+            
+            // Convert GeoJSON to OpenLayers features
+            const features = new ol.format.GeoJSON().readFeatures(geojsonObject, {
+                featureProjection: 'EPSG:3857'
+            });
+            
+            // Add features to source
+            vectorSource.addFeatures(features);
+            
+            // Store reference to the feature
+            if (data.polygon_id && features.length > 0) {
+                polygons[data.polygon_id] = features[0];
+                
+                // Add popup information if available
+                if (geojsonObject.properties && geojsonObject.properties.name) {
+                    features[0].set('name', geojsonObject.properties.name);
+                }
+            }
+            
+            // Add click interaction for popups
+            map.on('click', function(evt) {
+                const feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+                    return feature;
+                });
+                
+                if (feature && feature.get('name')) {
+                    const coordinate = evt.coordinate;
+                    content.innerHTML = feature.get('name');
+                    overlay.setPosition(coordinate);
+                }
+            });
+            
+            // Get the extent of the features
+            const extent = vectorSource.getExtent();
+            
+            // Animated zoom to the polygon
+            const currentZoom = map.getView().getZoom();
+            
+            // First zoom out to provide context (if we're zoomed in)
+            if (currentZoom > 8) {
+                map.getView().animate({
+                    zoom: 5,
+                    duration: 1000
+                });
+                
+                // Then zoom to the polygon extent
+                setTimeout(() => {
+                    map.getView().fit(extent, {
+                        padding: [50, 50, 50, 50],
+                        duration: 1000
+                    });
+                }, 1100);
+            } else {
+                // If already zoomed out, just fit to extent
+                map.getView().fit(extent, {
+                    padding: [50, 50, 50, 50],
+                    duration: 2000
+                });
+            }
+        }
+        
+        // Calculate distance between two points in km
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Radius of the earth in km
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon2 - lon1);
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2); 
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+            const d = R * c; // Distance in km
+            return d;
+        }
+        
+        function deg2rad(deg) {
+            return deg * (Math.PI/180);
+        }
+        
+        // Process events
+        function processEvents(events) {
+            events.forEach(event => {
+                logEvent(event);
+                
+                switch (event.type) {
+                    case 'zoom':
+                        handleZoomEvent(event.data);
+                        break;
+                    case 'plot_polygon':
+                        handlePlotPolygonEvent(event.data);
+                        break;
+                    default:
+                        console.log('Unknown event type:', event.type);
+                }
+            });
+        }
+        
+        // Poll for events
+        async function pollEvents() {
+            try {
+                const response = await fetch(`/events/${sessionId}?last_event_index=${lastEventIndex}`);
+                const data = await response.json();
+                
+                if (data.events && data.events.length > 0) {
+                    processEvents(data.events);
+                    lastEventIndex = data.last_event_index;
+                }
+            } catch (error) {
+                console.error('Error polling events:', error);
+            }
+            
+            // Continue polling
+            setTimeout(pollEvents, 1000);
+        }
+        
+        // Start polling for events
+        pollEvents();
+    </script>
+</body>
+</html>
