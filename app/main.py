@@ -10,6 +10,11 @@ from enum import Enum
 import requests
 from fastapi.middleware.cors import CORSMiddleware
 
+# Import inventory system
+# from app.models.inventory import MapItem, ItemType, AddItemRequest, UpdateItemRequest
+# from app.storage.dictionary import DictionaryStorage
+# from app.services.inventory import InventoryService
+
 app = FastAPI(title="Map Server")
 
 # Add CORS middleware
@@ -29,6 +34,10 @@ templates = Jinja2Templates(directory="app/templates")
 
 # In-memory storage for sessions
 sessions: Dict[str, Dict[str, Any]] = {}
+
+# Initialize inventory system
+# inventory_storage = DictionaryStorage()
+# inventory_service = InventoryService(inventory_storage)
 
 # Map types
 MAP_TYPES = ["leaflet", "deckgl"]
@@ -196,6 +205,64 @@ async def zoom_to_bounding_box(request: ZoomToBoundingBoxRequest):
     event = create_event(request.session_id, "zoom", event_data)
     return event
 
+# Inventory Management Routes
+# @app.get("/session/{session_id}/items")
+# async def get_items(session_id: str):
+#     """Get all items in a session's inventory"""
+#     if session_id not in sessions:
+#         raise HTTPException(status_code=404, detail="Session not found")
+#     
+#     items = await inventory_service.get_items(session_id)
+#     return {"items": [item.dict() for item in items]}
+
+# @app.post("/session/{session_id}/items")
+# async def add_item(session_id: str, request: AddItemRequest):
+#     """Add a new item to the inventory"""
+#     if session_id not in sessions:
+#         raise HTTPException(status_code=404, detail="Session not found")
+#     
+#     try:
+#         item = await inventory_service.add_item(session_id, request)
+#         return {"item": item.dict()}
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+
+# @app.get("/session/{session_id}/items/{item_id}")
+# async def get_item(session_id: str, item_id: str):
+#     """Get a specific item by ID"""
+#     if session_id not in sessions:
+#         raise HTTPException(status_code=404, detail="Session not found")
+#     
+#     item = await inventory_service.get_item(session_id, item_id)
+#     if not item:
+#         raise HTTPException(status_code=404, detail="Item not found")
+#     
+#     return {"item": item.dict()}
+
+# @app.put("/session/{session_id}/items/{item_id}")
+# async def update_item(session_id: str, item_id: str, request: UpdateItemRequest):
+#     """Update an existing item"""
+#     if session_id not in sessions:
+#         raise HTTPException(status_code=404, detail="Session not found")
+#     
+#     item = await inventory_service.update_item(session_id, item_id, request)
+#     if not item:
+#         raise HTTPException(status_code=404, detail="Item not found")
+#     
+#     return {"item": item.dict()}
+
+# @app.delete("/session/{session_id}/items/{item_id}")
+# async def delete_item(session_id: str, item_id: str):
+#     """Delete an item by ID"""
+#     if session_id not in sessions:
+#         raise HTTPException(status_code=404, detail="Session not found")
+#     
+#     success = await inventory_service.delete_item(session_id, item_id)
+#     if not success:
+#         raise HTTPException(status_code=404, detail="Item not found")
+#     
+#     return {"message": "Item deleted successfully"}
+
 @app.post("/plot_polygon")
 async def plot_polygon(request: PlotPolygonRequest):
     polygon_data = None
@@ -214,6 +281,7 @@ async def plot_polygon(request: PlotPolygonRequest):
     
     polygon_id = request.polygon_data.id or str(uuid.uuid4())
     
+    # Maintain backward compatibility with existing polygons storage
     if "polygons" not in sessions[request.session_id]:
         sessions[request.session_id]["polygons"] = []
     
@@ -221,6 +289,18 @@ async def plot_polygon(request: PlotPolygonRequest):
         "id": polygon_id,
         "data": polygon_data
     })
+    
+    # Add to inventory system
+    # try:
+    #     inventory_item = await inventory_service.add_polygon_item(
+    #         request.session_id, 
+    #         polygon_data, 
+    #         polygon_id,
+    #         name=f"Plotted Polygon {polygon_id[:8]}"
+    #     )
+    # except Exception as e:
+    #     # Log the error but don't fail the request for backward compatibility
+    #     print(f"Warning: Failed to add polygon to inventory: {e}")
     
     event_data = {
         "polygon_id": polygon_id,
@@ -245,4 +325,4 @@ async def get_events(session_id: str, last_event_index: int = 0):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

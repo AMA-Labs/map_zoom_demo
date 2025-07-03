@@ -351,6 +351,29 @@
             }
         }
         
+        // Handle inventory update events
+        function handleInventoryUpdateEvent(data) {
+            const action = data.action;
+            const itemName = data.item_name;
+            const itemType = data.item_type;
+            const itemId = data.item_id;
+            
+            switch (action) {
+                case 'add':
+                    console.log(`Added ${itemType}: ${itemName} (${itemId})`);
+                    break;
+                case 'update':
+                    const updatedFields = data.updated_fields ? data.updated_fields.join(', ') : 'unknown fields';
+                    console.log(`Updated ${itemType}: ${itemName} (${updatedFields})`);
+                    break;
+                case 'delete':
+                    console.log(`Deleted ${itemType}: ${itemName} (${itemId})`);
+                    break;
+                default:
+                    console.log(`Unknown inventory action: ${action}`);
+            }
+        }
+        
         // Process events
         function processEvents(events) {
             events.forEach(event => {
@@ -362,6 +385,9 @@
                         break;
                     case 'plot_polygon':
                         handlePlotPolygonEvent(event.data);
+                        break;
+                    case 'inventory_update':
+                        handleInventoryUpdateEvent(event.data);
                         break;
                     default:
                         console.log('Unknown event type:', event.type);
